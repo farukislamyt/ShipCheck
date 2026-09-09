@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shipcheck"
+version = "0.1.0"
+description = "Pre-deployment health checks for software projects."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Faruk Islam" }]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.scripts]
+shipcheck = "shipcheck.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shipcheck"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
