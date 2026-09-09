@@ -23,7 +23,9 @@ def test_project_checks(tmp_path: Path) -> None:
     (tmp_path / ".gitignore").write_text("__pycache__/", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\ndependencies = ["typer"]\n', encoding="utf-8")
     (tmp_path / "tests").mkdir()
+
     results = dict(check_project(tmp_path))
+
     assert results["Project directory"] == "PASS"
     assert results["Git repository"] == "PASS"
     assert results["README"] == "PASS"
@@ -41,6 +43,7 @@ def test_environment_template_requires_matching_keys(tmp_path: Path) -> None:
     (tmp_path / ".env.example").write_text("DATABASE_URL=\nAPI_KEY=\n", encoding="utf-8")
     (tmp_path / ".env").write_text("DATABASE_URL=test\n", encoding="utf-8")
     assert _env_status(tmp_path) == "WARN"
+
     (tmp_path / ".env").write_text("DATABASE_URL=test\nAPI_KEY=test\n", encoding="utf-8")
     assert _env_status(tmp_path) == "PASS"
 
@@ -105,9 +108,11 @@ def test_threshold_blocks_low_score() -> None:
 def test_deployment_provider_detection(tmp_path: Path) -> None:
     (tmp_path / "vercel.json").write_text("{}", encoding="utf-8")
     assert _deployment_provider(tmp_path) == "Vercel"
+
     (tmp_path / "vercel.json").unlink()
     (tmp_path / "Dockerfile").write_text("FROM python:3.11", encoding="utf-8")
     assert _deployment_provider(tmp_path) == "Docker"
+
     (tmp_path / "Dockerfile").unlink()
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
