@@ -2,7 +2,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from shipcheck.cli import _env_status, _framework, _secret_findings, app, calculate_score, check_project, is_deployable
+from shipcheck.cli import _deployment_provider, _env_status, _framework, _secret_findings, app, calculate_score, check_project, is_deployable
 
 runner = CliRunner()
 
@@ -70,6 +70,21 @@ def test_threshold_blocks_low_score() -> None:
     assert is_deployable(checks, score=75, threshold=70) is True
 
 
+def test_deployment_provider_detection(tmp_path: Path) -> None:
+    (tmp_path / "vercel.json").write_text("{}", encoding="utf-8")
+    assert _deployment_provider(tmp_path) == "Vercel"
+
+    (tmp_path / "vercel.json").unlink()
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11", encoding="utf-8")
+    assert _deployment_provider(tmp_path) == "Docker"
+
+    (tmp_path / "Dockerfile").unlink()
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("name: CI", encoding="utf-8")
+    assert _deployment_provider(tmp_path) == "GitHub Actions"
+
+
 def test_gate_exits_nonzero_when_blocked(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path), "--gate", "--json"])
     assert result.exit_code == 1
@@ -86,3 +101,10 @@ def test_json_output_includes_deployable(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path), "--json"])
     assert result.exit_code == 0
     assert '"deployable": true' in result.stdout
+
+
+def test_json_output_includes_provider(tmp_path: Path) -> None:
+    (tmp_path / "vercel.json").write_text("{}", encoding="utf-8")
+    result = runner.invoke(app, [str(tmp_path), "--json"])
+    assert result.exit_code == 0
+    assert '"deployment_provider": "Vercel"' in result.stdout
