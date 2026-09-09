@@ -2,7 +2,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from shipcheck.cli import _deployment_provider, _env_status, _framework, _secret_findings, app, calculate_score, check_project, is_deployable
+from shipcheck.cli import _deployment_provider, _env_status, _framework, _provider_validation, _secret_findings, app, calculate_score, check_project, is_deployable
 
 runner = CliRunner()
 
@@ -83,6 +83,36 @@ def test_deployment_provider_detection(tmp_path: Path) -> None:
     workflows.mkdir(parents=True)
     (workflows / "ci.yml").write_text("name: CI", encoding="utf-8")
     assert _deployment_provider(tmp_path) == "GitHub Actions"
+
+
+def test_vercel_config_validation(tmp_path: Path) -> None:
+    (tmp_path / "vercel.json").write_text('{"buildCommand": "npm run build"}', encoding="utf-8")
+    assert _provider_validation(tmp_path, "Vercel") == "PASS"
+    (tmp_path / "vercel.json").write_text('{invalid', encoding="utf-8")
+    assert _provider_validation(tmp_path, "Vercel") == "FAIL"
+
+
+def test_dockerfile_validation(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nCMD [\"python\", \"app.py\"]", encoding="utf-8")
+    assert _provider_validation(tmp_path, "Docker") == "PASS"
+    (tmp_path / "Dockerfile").write_text("CMD [\"python\", \"app.py\"]", encoding="utf-8")
+    assert _provider_validation(tmp_path, "Docker") == "FAIL"
+
+
+def test_github_actions_validation(tmp_path: Path) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    workflow = workflows / "deploy.yml"
+    workflow.write_text("name: Deploy\non: push\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
+    assert _provider_validation(tmp_path, "GitHub Actions") == "PASS"
+    workflow.write_text("name: Deploy\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
+    assert _provider_validation(tmp_path, "GitHub Actions") == "FAIL"
+
+
+def test_provider_validation_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text("CMD [\"python\", \"app.py\"]", encoding="utf-8")
+    results = dict(check_project(tmp_path))
+    assert results["Provider validation"] == "FAIL"
 
 
 def test_gate_exits_nonzero_when_blocked(tmp_path: Path) -> None:
