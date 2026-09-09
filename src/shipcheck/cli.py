@@ -44,6 +44,55 @@ def _has_tests(path: Path) -> str:
     return "PASS" if any(p.name.startswith(("test_", "spec_")) for p in path.rglob("*") if p.is_file()) else "WARN"
 
 
+def _framework(path: Path) -> str:
+    if (path / "manage.py").exists():
+        return "Django"
+    if (path / "pyproject.toml").exists() or (path / "requirements.txt").exists():
+        try:
+            files = [p for p in (path / "pyproject.toml", path / "requirements.txt") if p.exists()]
+            text = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in files).lower()
+            for name, label in (("fastapi", "FastAPI"), ("flask", "Flask"), ("django", "Django")):
+                if name in text:
+                    return label
+        except OSError:
+            pass
+        return "Python"
+    package = path / "package.json"
+    if package.exists():
+        try:
+            data = json.loads(package.read_text(encoding="utf-8", errors="ignore"))
+            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+            for name, label in (("next", "Next.js"), ("react", "React"), ("vue", "Vue"), ("express", "Express")):
+                if name in deps:
+                    return label
+        except (OSError, json.JSONDecodeError):
+            pass
+        return "Node.js"
+    return "Unknown"
+
+
+def _env_status(path: Path) -> str:
+    env = path / ".env"
+    template = next((path / name for name in (".env.example", ".env.template") if (path / name).exists()), None)
+    if not env.exists() and template is None:
+        return "WARN"
+    if not env.exists():
+        return "WARN"
+    if template is None:
+        return "PASS"
+    try:
+        env_keys = {line.split("=", 1)[0].strip() for line in env.read_text(errors="ignore").splitlines() if "=" in line and line.strip() and not line.lstrip().startswith("#")}
+        template_keys = {line.split("=", 1)[0].strip() for line in template.read_text(errors="ignore").splitlines() if "=" in line and line.strip() and not line.lstrip().startswith("#")}
+        return "PASS" if template_keys <= env_keys else "WARN"
+    except OSError:
+        return "WARN"
+
+
+def _deployment_files(path: Path) -> str:
+    names = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "vercel.json", "Procfile")
+    return "PASS" if any((path / name).exists() for name in names) else "WARN"
+
+
 def _secret_findings(path: Path) -> list[str]:
     findings: list[str] = []
     for file in path.rglob("*"):
@@ -64,10 +113,12 @@ def check_project(path: Path) -> list[tuple[str, str]]:
         ("Project directory", "PASS" if path.is_dir() else "FAIL"),
         ("Git repository", "PASS" if (path / ".git").exists() else "WARN"),
         ("Git working tree", _git_clean(path) if (path / ".git").exists() else "WARN"),
+        ("Framework detection", "PASS" if _framework(path) != "Unknown" else "WARN"),
         ("README", "PASS" if any((path / name).exists() for name in ("README.md", "README.rst", "README")) else "WARN"),
         (".gitignore", "PASS" if (path / ".gitignore").exists() else "WARN"),
-        ("Environment template", "PASS" if any((path / name).exists() for name in (".env.example", ".env.template")) else "WARN"),
+        ("Environment configuration", _env_status(path)),
         ("Dependency manifest", _has_dependency_manifest(path)),
+        ("Deployment config", _deployment_files(path)),
         ("Tests", _has_tests(path)),
         ("Secrets scan", "FAIL" if _secret_findings(path) else "PASS"),
     ]
@@ -84,14 +135,15 @@ def scan(
     secrets = _secret_findings(path)
     passed = sum(status == "PASS" for _, status in checks)
     score = round((passed / len(checks)) * 100)
-    payload = {"project": path.name, "score": score, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
+    payload = {"project": path.name, "framework": _framework(path), "score": score, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
         raise typer.Exit()
 
     console.print(Panel.fit("[bold]ShipCheck[/bold]\nPre-deployment health check"))
-    console.print(f"\n[bold]Project:[/bold] {path.name}\n")
+    console.print(f"\n[bold]Project:[/bold] {path.name}")
+    console.print(f"[bold]Framework:[/bold] {_framework(path)}\n")
     for name, status in checks:
         icon = {"PASS": "[green]✓[/green]", "WARN": "[yellow]⚠[/yellow]", "FAIL": "[red]✗[/red]"}[status]
         console.print(f"  {icon} {name}")
