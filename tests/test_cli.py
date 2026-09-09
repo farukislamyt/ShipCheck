@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from shipcheck.cli import _env_status, _framework, _secret_findings, check_project
+from typer.testing import CliRunner
+
+from shipcheck.cli import _env_status, _framework, _secret_findings, app, calculate_score, check_project, is_deployable
+
+runner = CliRunner()
 
 
 def test_project_checks(tmp_path: Path) -> None:
@@ -48,3 +52,24 @@ def test_secret_scanner_ignores_venv(tmp_path: Path) -> None:
     ignored.parent.mkdir()
     ignored.write_text('TOKEN = "ghp_123456789012345678901234567890"', encoding="utf-8")
     assert _secret_findings(tmp_path) == []
+
+
+def test_weighted_score_uses_check_weights() -> None:
+    checks = [("Tests", "PASS"), ("README", "WARN")]
+    assert calculate_score(checks) == 75
+
+
+def test_secret_failure_blocks_deployment() -> None:
+    checks = [("Secrets scan", "FAIL"), ("Tests", "PASS")]
+    assert is_deployable(checks) is False
+
+
+def test_gate_exits_nonzero_when_blocked(tmp_path: Path) -> None:
+    result = runner.invoke(app, [str(tmp_path), "--gate", "--json"])
+    assert result.exit_code == 1
+
+
+def test_json_output_includes_deployable(tmp_path: Path) -> None:
+    result = runner.invoke(app, [str(tmp_path), "--json"])
+    assert result.exit_code == 0
+    assert '"deployable": true' in result.stdout
