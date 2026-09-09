@@ -6,7 +6,7 @@ ShipCheck is a developer-first CLI that scans a project before deployment and hi
 
 ## Status
 
-🚧 Early development — v0.1.0 is the first release candidate.
+🚀 v0.1.0 — first public release.
 
 ## What it checks
 
@@ -22,20 +22,18 @@ ShipCheck is a developer-first CLI that scans a project before deployment and hi
 
 ## Installation
 
+### From PyPI
+
+```bash
+python -m pip install shipcheck
+```
+
 ### From source
 
 ```bash
 git clone https://github.com/farukislamyt/ShipCheck.git
 cd ShipCheck
 python -m pip install -e ".[dev]"
-```
-
-### From PyPI
-
-Once the first PyPI release is published:
-
-```bash
-python -m pip install shipcheck
 ```
 
 ## Usage
@@ -77,9 +75,9 @@ The CLI `--threshold` option takes precedence over the configuration file.
 
 ## Release process
 
-Releases are tag-driven. The GitHub Actions release workflow validates that the tag version matches `pyproject.toml`, builds the package, runs `twine check`, creates a GitHub Release, and publishes the distributions to PyPI using trusted publishing.
+Releases are tag-driven. The GitHub Actions release workflow validates that the tag version matches `pyproject.toml`, builds the package, runs `twine check`, creates a GitHub Release, and publishes distributions to PyPI using trusted publishing.
 
-For example, after updating the package version and changelog:
+For example:
 
 ```bash
 git tag v0.1.0
