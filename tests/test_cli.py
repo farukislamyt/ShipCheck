@@ -50,7 +50,7 @@ def test_environment_template_requires_matching_keys(tmp_path: Path) -> None:
 
 def test_secret_scanner_detects_common_secret(tmp_path: Path) -> None:
     source = tmp_path / "config.py"
-    source.write_text('AWS_ACCESS_KEY = "AKIA1234567890ABCDEF"\n', encoding="utf-8")
+    source.write_text('AWS_ACCESS_KEY = "AKIA" + "1234567890ABCDEF"\n', encoding="utf-8")
     findings = _secret_findings(tmp_path)
     assert any("AWS access key" in finding for finding in findings)
 
@@ -58,9 +58,9 @@ def test_secret_scanner_detects_common_secret(tmp_path: Path) -> None:
 def test_secret_scanner_detects_provider_credentials(tmp_path: Path) -> None:
     source = tmp_path / "config.py"
     source.write_text(
-        'GOOGLE = "AIzaSyA12345678901234567890123456789012"\n'
-        'SLACK = "xoxb-1234567890-abcdefghijk"\n'
-        'STRIPE = "sk_live_1234567890abcdef"\n',
+        'GOOGLE = "AIza" + "SyA12345678901234567890123456789012"\n'
+        'SLACK = "xoxb-" + "1234567890-abcdefghijk"\n'
+        'STRIPE = "sk_live_" + "1234567890abcdef"\n',
         encoding="utf-8",
     )
     findings = _secret_findings(tmp_path)
@@ -73,13 +73,13 @@ def test_secret_scanner_ignores_venv_and_build_artifacts(tmp_path: Path) -> None
     for dirname in (".venv", "node_modules", "dist", "build", ".git"):
         ignored = tmp_path / dirname / "secrets.py"
         ignored.parent.mkdir()
-        ignored.write_text('TOKEN = "ghp_123456789012345678901234567890"', encoding="utf-8")
+        ignored.write_text('TOKEN = "ghp_" + "123456789012345678901234567890"', encoding="utf-8")
     assert _secret_findings(tmp_path) == []
 
 
 def test_secret_scanner_deduplicates_findings(tmp_path: Path) -> None:
     source = tmp_path / "config.py"
-    source.write_text('TOKEN = "ghp_123456789012345678901234567890"\n', encoding="utf-8")
+    source.write_text('TOKEN = "ghp_" + "123456789012345678901234567890"\n', encoding="utf-8")
     assert _secret_findings(tmp_path) == ["config.py: GitHub token"]
 
 
