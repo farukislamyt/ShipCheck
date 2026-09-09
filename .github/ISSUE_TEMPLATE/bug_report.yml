@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem with ShipCheck.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove any secrets or sensitive project data before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: ShipCheck version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: Include the command and a minimal project/configuration example.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Python version and operating system.
+    validations:
+      required: true
