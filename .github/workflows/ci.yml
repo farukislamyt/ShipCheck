@@ -37,8 +37,14 @@ jobs:
       - name: Build package
         run: python -m build
 
-      - name: Validate wheel metadata
+      - name: Install built wheel
         run: python -m pip install dist/*.whl --force-reinstall
 
-      - name: CLI smoke test
-        run: shipcheck . --json
+      - name: CLI JSON smoke test
+        run: shipcheck . --format json > shipcheck.json
+
+      - name: CLI SARIF smoke test
+        run: shipcheck . --format sarif > shipcheck.sarif
+
+      - name: Validate SARIF document
+        run: python -c "import json; d=json.load(open('shipcheck.sarif')); assert d['version']=='2.1.0'; assert d['runs'][0]['tool']['driver']['name']=='ShipCheck'"
