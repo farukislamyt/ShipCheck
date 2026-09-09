@@ -1,0 +1,39 @@
+name: ShipCheck
+description: Check whether a project is ready to deploy
+branding:
+  icon: check-circle
+  color: green
+inputs:
+  threshold:
+    description: Minimum readiness score required by the deployment gate
+    required: false
+    default: "80"
+  gate:
+    description: Fail the action when readiness is below threshold or a check fails
+    required: false
+    default: "true"
+  format:
+    description: Output format (text, json, sarif)
+    required: false
+    default: sarif
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - name: Install ShipCheck
+      shell: bash
+      run: python -m pip install --disable-pip-version-check shipcheck-cli==0.2.0
+    - name: Run ShipCheck
+      shell: bash
+      run: |
+        args=(. --format "${{ inputs.format }}" --threshold "${{ inputs.threshold }}")
+        if [ "${{ inputs.gate }}" = "true" ]; then args+=(--gate); fi
+        shipcheck "${args[@]}" > shipcheck-results.json
+    - name: Upload SARIF results
+      if: ${{ inputs.format == 'sarif' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: shipcheck-results.json
