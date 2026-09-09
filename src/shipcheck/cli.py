@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import typer
+import yaml
 from rich.console import Console
 from rich.panel import Panel
 
@@ -32,7 +33,8 @@ CHECK_WEIGHTS = {
     "Environment configuration": 10,
     "Dependency manifest": 10,
     "Deployment config": 10,
-    "Tests": 15,
+    "Provider validation": 5,
+    "Tests": 10,
     "Secrets scan": 10,
 }
 DEFAULT_THRESHOLD = 80
@@ -127,6 +129,17 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
+def _load_yaml_mapping(path: Path) -> dict | None:
+    text = _read_text(path)
+    if text is None:
+        return None
+    try:
+        data = yaml.load(text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _validate_vercel(path: Path) -> str:
     config = path / "vercel.json"
     if not config.exists():
@@ -148,10 +161,8 @@ def _validate_docker(path: Path) -> str:
     compose = next((path / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (path / name).exists()), None)
     if compose is None:
         return "WARN"
-    text = _read_text(compose)
-    if text is None:
-        return "WARN"
-    return "PASS" if re.search(r"(?m)^\s*services\s*:", text) else "FAIL"
+    data = _load_yaml_mapping(compose)
+    return "PASS" if data is not None and isinstance(data.get("services"), dict) and data["services"] else "FAIL"
 
 
 def _validate_github_actions(path: Path) -> str:
@@ -160,15 +171,15 @@ def _validate_github_actions(path: Path) -> str:
     if not files:
         return "WARN"
     for workflow in files:
-        text = _read_text(workflow)
-        if text is None:
-            return "WARN"
-        # Lightweight validation without adding a YAML runtime dependency.
-        if not re.search(r"(?m)^\s*(?:name|\"name\")\s*:", text):
+        data = _load_yaml_mapping(workflow)
+        if data is None:
             return "FAIL"
-        if not re.search(r"(?m)^\s*(?:on|\"on\")\s*:", text):
+        if not isinstance(data.get("name"), str) or not data.get("name", "").strip():
             return "FAIL"
-        if not re.search(r"(?m)^\s*(?:jobs|\"jobs\")\s*:", text):
+        if "on" not in data:
+            return "FAIL"
+        jobs = data.get("jobs")
+        if not isinstance(jobs, dict) or not jobs:
             return "FAIL"
     return "PASS"
 
