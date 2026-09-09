@@ -14,14 +14,17 @@ app = typer.Typer(help="Pre-deployment health checks for software projects.")
 console = Console()
 
 SECRET_PATTERNS = {
-    "AWS access key": re.compile(r"AKIA[0-9A-Z]{16}"),
-    "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}"),
-    "Private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    "Generic API key": re.compile(r"(?i)(api[_-]?key|secret[_-]?key)\s*[:=]\s*[\"'][^\"']{12,}[\"']"),
+    "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+    "Private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+    "Google API key": re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    "Slack token": re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
+    "Stripe live key": re.compile(r"\bsk_live_[0-9A-Za-z]{16,}\b"),
+    "Generic API key": re.compile(r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*[\"'][^\"']{16,}[\"']"),
 }
 
-IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
-SCANNABLE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".txt"}
+IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build", ".mypy_cache", ".ruff_cache"}
+SCANNABLE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".txt", ".cfg", ".conf"}
 
 CHECK_WEIGHTS = {
     "Project directory": 5,
@@ -134,7 +137,7 @@ def _load_yaml_mapping(path: Path) -> dict | None:
     if text is None:
         return None
     try:
-        data = yaml.load(text, Loader=yaml.BaseLoader)
+        data = yaml.safe_load(text)
     except yaml.YAMLError:
         return None
     return data if isinstance(data, dict) else None
@@ -176,7 +179,7 @@ def _validate_github_actions(path: Path) -> str:
             return "FAIL"
         if not isinstance(data.get("name"), str) or not data.get("name", "").strip():
             return "FAIL"
-        if "on" not in data:
+        if "on" not in data and True not in data:
             return "FAIL"
         jobs = data.get("jobs")
         if not isinstance(jobs, dict) or not jobs:
@@ -194,12 +197,13 @@ def _provider_validation(path: Path, provider: str) -> str:
     if provider == "Procfile-compatible":
         procfile = path / "Procfile"
         text = _read_text(procfile)
-        return "PASS" if text and any(":" in line for line in text.splitlines() if line.strip()) else "FAIL"
+        return "PASS" if text and any(re.match(r"^\s*[A-Za-z][A-Za-z0-9_-]*\s*:", line) for line in text.splitlines()) else "FAIL"
     return "WARN"
 
 
 def _secret_findings(path: Path) -> list[str]:
     findings: list[str] = []
+    seen: set[tuple[str, str]] = set()
     for file in path.rglob("*"):
         if not file.is_file() or any(part in IGNORED_DIRS for part in file.parts) or file.suffix.lower() not in SCANNABLE_SUFFIXES:
             continue
@@ -209,7 +213,10 @@ def _secret_findings(path: Path) -> list[str]:
             continue
         for label, pattern in SECRET_PATTERNS.items():
             if pattern.search(text):
-                findings.append(f"{file.relative_to(path)}: {label}")
+                finding = (str(file.relative_to(path)), label)
+                if finding not in seen:
+                    findings.append(f"{finding[0]}: {finding[1]}")
+                    seen.add(finding)
     return findings
 
 
