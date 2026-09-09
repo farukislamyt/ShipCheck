@@ -64,9 +64,22 @@ def test_secret_failure_blocks_deployment() -> None:
     assert is_deployable(checks) is False
 
 
+def test_threshold_blocks_low_score() -> None:
+    checks = [("Tests", "PASS"), ("README", "WARN")]
+    assert is_deployable(checks, score=75, threshold=80) is False
+    assert is_deployable(checks, score=75, threshold=70) is True
+
+
 def test_gate_exits_nonzero_when_blocked(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path), "--gate", "--json"])
     assert result.exit_code == 1
+
+
+def test_cli_threshold_override(tmp_path: Path) -> None:
+    result = runner.invoke(app, [str(tmp_path), "--threshold", "0", "--json"])
+    assert result.exit_code == 0
+    assert '"threshold": 0' in result.stdout
+    assert '"deployable": true' in result.stdout
 
 
 def test_json_output_includes_deployable(tmp_path: Path) -> None:
