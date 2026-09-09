@@ -2,7 +2,17 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from shipcheck.cli import _deployment_provider, _env_status, _framework, _provider_validation, _secret_findings, app, calculate_score, check_project, is_deployable
+from shipcheck.cli import (
+    _deployment_provider,
+    _env_status,
+    _framework,
+    _provider_validation,
+    _secret_findings,
+    app,
+    calculate_score,
+    check_project,
+    is_deployable,
+)
 
 runner = CliRunner()
 
@@ -162,10 +172,10 @@ def test_cli_threshold_override(tmp_path: Path) -> None:
     assert '"deployable": true' in result.stdout
 
 
-def test_json_output_includes_deployable(tmp_path: Path) -> None:
+def test_json_output_is_blocked_for_empty_project(tmp_path: Path) -> None:
     result = runner.invoke(app, [str(tmp_path), "--json"])
     assert result.exit_code == 0
-    assert '"deployable": true' in result.stdout
+    assert '"deployable": false' in result.stdout
 
 
 def test_json_output_includes_provider(tmp_path: Path) -> None:
