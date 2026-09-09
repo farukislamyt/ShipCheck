@@ -20,11 +20,12 @@ SECRET_PATTERNS = {
     "Google API key": re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
     "Slack token": re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
     "Stripe live key": re.compile(r"\bsk_live_[0-9A-Za-z]{16,}\b"),
-    "Generic API key": re.compile(r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*[\"'][^\"']{16,}[\"']"),
+    "Generic API key": re.compile(r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token)\s*[:=]\s*[\"']([^\"']{16,})[\"']"),
 }
 
 IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build", ".mypy_cache", ".ruff_cache"}
 SCANNABLE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".txt", ".cfg", ".conf"}
+PLACEHOLDER_VALUES = {"example-placeholder", "changeme", "change-me", "your-api-key", "your-secret-key", "replace-me"}
 
 CHECK_WEIGHTS = {
     "Project directory": 5,
@@ -212,7 +213,8 @@ def _secret_findings(path: Path) -> list[str]:
         except OSError:
             continue
         for label, pattern in SECRET_PATTERNS.items():
-            if pattern.search(text):
+            match = pattern.search(text)
+            if match and not (label == "Generic API key" and match.group(2).strip().lower() in PLACEHOLDER_VALUES):
                 finding = (str(file.relative_to(path)), label)
                 if finding not in seen:
                     findings.append(f"{finding[0]}: {finding[1]}")
@@ -267,13 +269,13 @@ def _configured_threshold(path: Path) -> int:
 
 @app.command()
 def scan(
-    path: Path = typer.Argument(Path("."), exists=True, file_okay=False, dir_okay=True),
+    path: Path = typer.Argument(None, exists=True, file_okay=False, dir_okay=True),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
     gate: bool = typer.Option(False, "--gate", help="Exit with code 1 when the deployment gate fails."),
     threshold: int | None = typer.Option(None, min=0, max=100, help="Minimum readiness score required by --gate."),
 ) -> None:
     """Scan PATH and report deployment readiness checks."""
-    path = path.resolve()
+    path = (path or Path(".")).resolve()
     checks = check_project(path)
     secrets = _secret_findings(path)
     score = calculate_score(checks)
