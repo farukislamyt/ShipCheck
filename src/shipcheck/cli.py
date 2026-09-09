@@ -12,6 +12,7 @@ from rich.panel import Panel
 
 app = typer.Typer(help="Pre-deployment health checks for software projects.")
 console = Console()
+PATH_ARGUMENT = typer.Argument(None, exists=True, file_okay=False, dir_okay=True)
 
 SECRET_PATTERNS = {
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -269,7 +270,7 @@ def _configured_threshold(path: Path) -> int:
 
 @app.command()
 def scan(
-    path: Path = typer.Argument(None, exists=True, file_okay=False, dir_okay=True),
+    path: Path | None = PATH_ARGUMENT,
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
     gate: bool = typer.Option(False, "--gate", help="Exit with code 1 when the deployment gate fails."),
     threshold: int | None = typer.Option(None, min=0, max=100, help="Minimum readiness score required by --gate."),
