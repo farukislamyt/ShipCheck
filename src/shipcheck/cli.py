@@ -170,16 +170,19 @@ def _provider_validation(path: Path, provider: str) -> str:
     return "WARN"
 
 
-def _secret_findings(path: Path) -> list[str]:
+def _secret_findings(path: Path, ignored_paths: set[str] | None = None) -> list[str]:
     findings, seen = [], set()
+    ignored_paths = ignored_paths or set()
     for file in path.rglob("*"):
+        relative = file.relative_to(path).as_posix()
+        if any(relative == item.rstrip("/") or relative.startswith(item.rstrip("/") + "/") for item in ignored_paths): continue
         if not file.is_file() or any(part in IGNORED_DIRS for part in file.parts) or file.suffix.lower() not in SCANNABLE_SUFFIXES: continue
         text = _read_text(file) or ""
         for label, pattern in SECRET_PATTERNS.items():
             match = pattern.search(text)
             if match and not (label == "Generic API key" and match.group(2).strip().lower() in PLACEHOLDER_VALUES):
-                item = (str(file.relative_to(path)), label)
-                if item not in seen: findings.append(f"{item[0]}: {item[1]}"); seen.add(item)
+                item = (relative, label)
+                if item not in seen: findings.append(f"{relative}: {label}"); seen.add(item)
     return findings
 
 
@@ -197,10 +200,10 @@ def _config(path: Path) -> tuple[int, set[str], set[str]]:
         raise ValueError(f"Invalid .shipcheck.toml: {exc}") from exc
 
 
-def check_project(path: Path, ignored_checks: set[str] | None = None) -> list[tuple[str, str]]:
+def check_project(path: Path, ignored_checks: set[str] | None = None, ignored_paths: set[str] | None = None) -> list[tuple[str, str]]:
     ignored_checks = ignored_checks or set()
     provider = _deployment_provider(path)
-    checks = [("Project directory", "PASS" if path.is_dir() else "FAIL"), ("Git repository", "PASS" if (path / ".git").exists() else "WARN"), ("Git working tree", _git_clean(path) if (path / ".git").exists() else "WARN"), ("Framework detection", "PASS" if _framework(path) != "Unknown" else "WARN"), ("README", "PASS" if any((path / n).exists() for n in ("README.md", "README.rst", "README")) else "WARN"), (".gitignore", "PASS" if (path / ".gitignore").exists() else "WARN"), ("Environment configuration", _env_status(path)), ("Dependency manifest", _has_dependency_manifest(path)), ("Deployment config", _deployment_files(path)), ("Provider validation", _provider_validation(path, provider)), ("Tests", _has_tests(path)), ("Secrets scan", "FAIL" if _secret_findings(path) else "PASS")]
+    checks = [("Project directory", "PASS" if path.is_dir() else "FAIL"), ("Git repository", "PASS" if (path / ".git").exists() else "WARN"), ("Git working tree", _git_clean(path) if (path / ".git").exists() else "WARN"), ("Framework detection", "PASS" if _framework(path) != "Unknown" else "WARN"), ("README", "PASS" if any((path / n).exists() for n in ("README.md", "README.rst", "README")) else "WARN"), (".gitignore", "PASS" if (path / ".gitignore").exists() else "WARN"), ("Environment configuration", _env_status(path)), ("Dependency manifest", _has_dependency_manifest(path)), ("Deployment config", _deployment_files(path)), ("Provider validation", _provider_validation(path, provider)), ("Tests", _has_tests(path)), ("Secrets scan", "FAIL" if _secret_findings(path, ignored_paths) else "PASS")]
     return [(name, status) for name, status in checks if name not in ignored_checks]
 
 
@@ -249,25 +252,26 @@ def scan(path: Path | None = PATH_ARGUMENT, json_output: bool = typer.Option(Fal
     """Scan PATH and report deployment readiness."""
     path = (path or Path(".")).resolve()
     if format not in {"text", "json", "sarif"}: raise typer.BadParameter("must be text, json, or sarif", param_hint="--format")
-    try: configured_threshold, ignored_checks, _ = _config(path)
+    try: configured_threshold, ignored_checks, ignored_paths = _config(path)
     except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
+        if json_output or format in {"json", "sarif"}: typer.echo(json.dumps({"error": str(exc)}))
+        else: console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=EXIT_INVALID_CONFIG) from exc
-    if fix:
-        for item in _safe_fix(path): console.print(f"[green]✓[/green] {item}")
-    checks = check_project(path, ignored_checks)
-    secrets = _secret_findings(path)
+    changes = _safe_fix(path) if fix else []
+    checks = check_project(path, ignored_checks, ignored_paths)
+    secrets = _secret_findings(path, ignored_paths)
     score = calculate_score(checks)
     effective_threshold = configured_threshold if threshold is None else threshold
     provider = _deployment_provider(path)
     deployable = is_deployable(checks, score, effective_threshold)
     diagnostics = _diagnostics(checks, secrets)
-    payload = {"project": path.name, "framework": _framework(path), "deployment_provider": provider, "score": score, "threshold": effective_threshold, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets, "diagnostics": diagnostics, "exit_codes": {"ready": EXIT_READY, "gate_failed": EXIT_GATE_FAILED, "invalid_config": EXIT_INVALID_CONFIG, "usage": EXIT_USAGE}}
+    payload = {"project": path.name, "framework": _framework(path), "deployment_provider": provider, "score": score, "threshold": effective_threshold, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets, "diagnostics": diagnostics, "fixes_applied": changes, "exit_codes": {"ready": EXIT_READY, "gate_failed": EXIT_GATE_FAILED, "invalid_config": EXIT_INVALID_CONFIG, "usage": EXIT_USAGE}}
     if format == "sarif": typer.echo(json.dumps(_sarif(payload), indent=2))
     elif json_output or format == "json": typer.echo(json.dumps(payload, indent=2))
     else:
         console.print(Panel.fit("[bold]ShipCheck[/bold]\nPre-deployment health check"))
         console.print(f"\n[bold]Project:[/bold] {path.name}\n[bold]Framework:[/bold] {_framework(path)}\n[bold]Deployment target:[/bold] {provider}\n")
+        for item in changes: console.print(f"[green]✓[/green] {item}")
         for name, status in checks:
             icon = {"PASS": "[green]✓[/green]", "WARN": "[yellow]⚠[/yellow]", "FAIL": "[red]✗[/red]"}[status]
             console.print(f"  {icon} {name}")
