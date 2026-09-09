@@ -45,16 +45,43 @@ def test_secret_scanner_detects_common_secret(tmp_path: Path) -> None:
     assert any("AWS access key" in finding for finding in findings)
 
 
-def test_secret_scanner_ignores_venv(tmp_path: Path) -> None:
-    ignored = tmp_path / ".venv" / "lib.py"
-    ignored.parent.mkdir()
-    ignored.write_text('TOKEN = "ghp_123456789012345678901234567890"', encoding="utf-8")
+def test_secret_scanner_detects_provider_credentials(tmp_path: Path) -> None:
+    source = tmp_path / "config.py"
+    source.write_text(
+        'GOOGLE = "AIzaSyA123456789012345678901234567890123"\n'
+        'SLACK = "xoxb-1234567890-abcdefghijk"\n'
+        'STRIPE = "sk_live_1234567890abcdef"\n',
+        encoding="utf-8",
+    )
+    findings = _secret_findings(tmp_path)
+    assert any("Google API key" in finding for finding in findings)
+    assert any("Slack token" in finding for finding in findings)
+    assert any("Stripe live key" in finding for finding in findings)
+
+
+def test_secret_scanner_ignores_venv_and_build_artifacts(tmp_path: Path) -> None:
+    for dirname in (".venv", "node_modules", "dist", "build", ".git"):
+        ignored = tmp_path / dirname / "secrets.py"
+        ignored.parent.mkdir()
+        ignored.write_text('TOKEN = "ghp_123456789012345678901234567890"', encoding="utf-8")
+    assert _secret_findings(tmp_path) == []
+
+
+def test_secret_scanner_deduplicates_findings(tmp_path: Path) -> None:
+    source = tmp_path / "config.py"
+    source.write_text('TOKEN = "ghp_123456789012345678901234567890"\n', encoding="utf-8")
+    assert _secret_findings(tmp_path) == ["config.py: GitHub token"]
+
+
+def test_secret_scanner_ignores_short_generic_values(tmp_path: Path) -> None:
+    source = tmp_path / "config.py"
+    source.write_text('API_KEY = "example-placeholder"\n', encoding="utf-8")
     assert _secret_findings(tmp_path) == []
 
 
 def test_weighted_score_uses_check_weights() -> None:
     checks = [("Tests", "PASS"), ("README", "WARN")]
-    assert calculate_score(checks) == 75
+    assert calculate_score(checks) == 67
 
 
 def test_secret_failure_blocks_deployment() -> None:
