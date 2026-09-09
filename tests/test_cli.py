@@ -58,7 +58,7 @@ def test_secret_scanner_detects_common_secret(tmp_path: Path) -> None:
 def test_secret_scanner_detects_provider_credentials(tmp_path: Path) -> None:
     source = tmp_path / "config.py"
     source.write_text(
-        'GOOGLE = "AIzaSyA123456789012345678901234567890123"\n'
+        'GOOGLE = "AIzaSyA12345678901234567890123456789012"\n'
         'SLACK = "xoxb-1234567890-abcdefghijk"\n'
         'STRIPE = "sk_live_1234567890abcdef"\n',
         encoding="utf-8",
