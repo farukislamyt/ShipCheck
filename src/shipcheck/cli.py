@@ -55,14 +55,12 @@ def _has_tests(path: Path) -> str:
 
 
 def _framework(path: Path) -> str:
-    if (path / "manage.py").exists():
-        return "Django"
+    if (path / "manage.py").exists(): return "Django"
     manifests = [p for p in (path / "pyproject.toml", path / "requirements.txt") if p.exists()]
     if manifests:
         text = "\n".join(_read_text(p) or "" for p in manifests).lower()
         for name, label in (("fastapi", "FastAPI"), ("flask", "Flask"), ("django", "Django")):
-            if name in text:
-                return label
+            if name in text: return label
         return "Python"
     package = path / "package.json"
     if package.exists():
@@ -70,24 +68,20 @@ def _framework(path: Path) -> str:
             data = json.loads(_read_text(package) or "{}")
             deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
             for name, label in (("next", "Next.js"), ("react", "React"), ("vue", "Vue"), ("express", "Express")):
-                if name in deps:
-                    return label
-        except json.JSONDecodeError:
-            return "Node.js"
+                if name in deps: return label
+        except json.JSONDecodeError: return "Node.js"
         return "Node.js"
     return "Unknown"
 
 
 def _env_keys(file: Path) -> set[str]:
-    text = _read_text(file) or ""
-    return {line.split("=", 1)[0].strip() for line in text.splitlines() if "=" in line and line.strip() and not line.lstrip().startswith("#")}
+    return {line.split("=", 1)[0].strip() for line in (_read_text(file) or "").splitlines() if "=" in line and line.strip() and not line.lstrip().startswith("#")}
 
 
 def _env_status(path: Path) -> str:
     env = path / ".env"
     template = next((path / name for name in (".env.example", ".env.template") if (path / name).exists()), None)
-    if template is None:
-        return "PASS" if env.exists() else "WARN"
+    if template is None: return "PASS" if env.exists() else "WARN"
     return "PASS" if env.exists() and _env_keys(template) <= _env_keys(env) else "WARN"
 
 
@@ -110,30 +104,24 @@ def _deployment_files(path: Path) -> str:
 
 
 def _read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return None
+    try: return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError: return None
 
 
 def _load_yaml_mapping(path: Path) -> dict | None:
-    try:
-        data = yaml.safe_load(_read_text(path) or "")
-    except yaml.YAMLError:
-        return None
+    try: data = yaml.safe_load(_read_text(path) or "")
+    except yaml.YAMLError: return None
     return data if isinstance(data, dict) else None
 
 
 def _validate_vercel(path: Path) -> str:
-    try:
-        return "PASS" if isinstance(json.loads(_read_text(path / "vercel.json") or ""), dict) else "FAIL"
+    try: return "PASS" if isinstance(json.loads(_read_text(path / "vercel.json") or ""), dict) else "FAIL"
     except (OSError, json.JSONDecodeError): return "FAIL"
 
 
 def _validate_docker(path: Path) -> str:
     dockerfile = path / "Dockerfile"
-    if dockerfile.exists():
-        return "PASS" if re.search(r"(?m)^\s*FROM\s+\S+", _read_text(dockerfile) or "") else "FAIL"
+    if dockerfile.exists(): return "PASS" if re.search(r"(?m)^\s*FROM\s+\S+", _read_text(dockerfile) or "") else "FAIL"
     compose = next((path / n for n in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (path / n).exists()), None)
     data = _load_yaml_mapping(compose) if compose else None
     return "PASS" if data and isinstance(data.get("services"), dict) and data["services"] else "FAIL"
@@ -145,16 +133,22 @@ def _validate_github_actions(path: Path) -> str:
     if not files: return "WARN"
     for workflow in files:
         data = _load_yaml_mapping(workflow)
-        if data is None or not isinstance(data.get("name"), str) or not data.get("name", "").strip() or ("on" not in data and True not in data) or not isinstance(data.get("jobs"), dict) or not data["jobs"]:
-            return "FAIL"
+        if data is None or not isinstance(data.get("name"), str) or not data.get("name", "").strip() or ("on" not in data and True not in data) or not isinstance(data.get("jobs"), dict) or not data["jobs"]: return "FAIL"
     return "PASS"
 
 
-def _validate_simple_yaml(path: Path, filenames: tuple[str, ...], required: str | None = None) -> str:
+def _validate_toml(path: Path, filenames: tuple[str, ...], required_sections: tuple[str, ...] = ()) -> str:
     file = next((path / n for n in filenames if (path / n).exists()), None)
     if file is None: return "WARN"
-    data = _load_yaml_mapping(file)
-    return "PASS" if data is not None and (required is None or required in data) else "FAIL"
+    try: data = tomllib.loads(_read_text(file) or "")
+    except tomllib.TOMLDecodeError: return "FAIL"
+    return "PASS" if all(section in data for section in required_sections) else "FAIL"
+
+
+def _validate_simple_yaml(path: Path, filenames: tuple[str, ...]) -> str:
+    file = next((path / n for n in filenames if (path / n).exists()), None)
+    if file is None: return "WARN"
+    return "PASS" if _load_yaml_mapping(file) is not None else "FAIL"
 
 
 def _provider_validation(path: Path, provider: str) -> str:
@@ -163,15 +157,12 @@ def _provider_validation(path: Path, provider: str) -> str:
     if provider == "GitHub Actions": return _validate_github_actions(path)
     if provider == "Render": return _validate_simple_yaml(path, ("render.yaml", "render.yml"))
     if provider == "Railway":
-        for name in ("railway.json", "railway.toml"):
-            if (path / name).exists():
-                try:
-                    if name.endswith("json"): return "PASS" if isinstance(json.loads(_read_text(path / name) or ""), dict) else "FAIL"
-                    return "PASS" if _read_text(path / name) and "[build" in (_read_text(path / name) or "") or "[deploy" in (_read_text(path / name) or "") else "FAIL"
-                except (json.JSONDecodeError, OSError): return "FAIL"
-    if provider == "Fly.io":
-        return "PASS" if _read_text(path / "fly.toml") and "app =" in (_read_text(path / "fly.toml") or "") else "FAIL"
-    if provider == "Netlify": return _validate_simple_yaml(path, ("netlify.toml",))
+        if (path / "railway.json").exists():
+            try: return "PASS" if isinstance(json.loads(_read_text(path / "railway.json") or ""), dict) else "FAIL"
+            except json.JSONDecodeError: return "FAIL"
+        return _validate_toml(path, ("railway.toml",))
+    if provider == "Fly.io": return _validate_toml(path, ("fly.toml",), ("app",))
+    if provider == "Netlify": return _validate_toml(path, ("netlify.toml",))
     if provider == "AWS": return _validate_simple_yaml(path, ("template.yaml", "template.yml", "sam-template.yaml", "sam-template.yml"))
     if provider == "Procfile-compatible":
         text = _read_text(path / "Procfile") or ""
@@ -209,20 +200,7 @@ def _config(path: Path) -> tuple[int, set[str], set[str]]:
 def check_project(path: Path, ignored_checks: set[str] | None = None) -> list[tuple[str, str]]:
     ignored_checks = ignored_checks or set()
     provider = _deployment_provider(path)
-    checks = [
-        ("Project directory", "PASS" if path.is_dir() else "FAIL"),
-        ("Git repository", "PASS" if (path / ".git").exists() else "WARN"),
-        ("Git working tree", _git_clean(path) if (path / ".git").exists() else "WARN"),
-        ("Framework detection", "PASS" if _framework(path) != "Unknown" else "WARN"),
-        ("README", "PASS" if any((path / n).exists() for n in ("README.md", "README.rst", "README")) else "WARN"),
-        (".gitignore", "PASS" if (path / ".gitignore").exists() else "WARN"),
-        ("Environment configuration", _env_status(path)),
-        ("Dependency manifest", _has_dependency_manifest(path)),
-        ("Deployment config", _deployment_files(path)),
-        ("Provider validation", _provider_validation(path, provider)),
-        ("Tests", _has_tests(path)),
-        ("Secrets scan", "FAIL" if _secret_findings(path) else "PASS"),
-    ]
+    checks = [("Project directory", "PASS" if path.is_dir() else "FAIL"), ("Git repository", "PASS" if (path / ".git").exists() else "WARN"), ("Git working tree", _git_clean(path) if (path / ".git").exists() else "WARN"), ("Framework detection", "PASS" if _framework(path) != "Unknown" else "WARN"), ("README", "PASS" if any((path / n).exists() for n in ("README.md", "README.rst", "README")) else "WARN"), (".gitignore", "PASS" if (path / ".gitignore").exists() else "WARN"), ("Environment configuration", _env_status(path)), ("Dependency manifest", _has_dependency_manifest(path)), ("Deployment config", _deployment_files(path)), ("Provider validation", _provider_validation(path, provider)), ("Tests", _has_tests(path)), ("Secrets scan", "FAIL" if _secret_findings(path) else "PASS")]
     return [(name, status) for name, status in checks if name not in ignored_checks]
 
 
@@ -238,18 +216,7 @@ def is_deployable(checks: list[tuple[str, str]], score: int | None = None, thres
 
 def _diagnostics(checks: list[tuple[str, str]], secrets: list[str]) -> dict[str, list[str]]:
     fixes = {"FAIL": [], "WARN": []}
-    advice = {
-        "Git repository": "Initialize Git and commit the project.",
-        "Git working tree": "Commit or stash pending changes before deployment.",
-        "README": "Add README.md with setup and deployment instructions.",
-        ".gitignore": "Add a .gitignore covering secrets, environments, caches, and build artifacts.",
-        "Environment configuration": "Add .env.example and ensure every required key is configured in deployment secrets.",
-        "Dependency manifest": "Add a dependency manifest and lock file where supported.",
-        "Deployment config": "Add the deployment configuration for your target platform.",
-        "Provider validation": "Fix the detected provider configuration syntax and required fields.",
-        "Tests": "Add automated tests before deploying.",
-        "Framework detection": "Add a supported framework/dependency manifest or verify the project type.",
-    }
+    advice = {"Git repository": "Initialize Git and commit the project.", "Git working tree": "Commit or stash pending changes before deployment.", "README": "Add README.md with setup and deployment instructions.", ".gitignore": "Add a .gitignore covering secrets, environments, caches, and build artifacts.", "Environment configuration": "Add .env.example and ensure every required key is configured in deployment secrets.", "Dependency manifest": "Add a dependency manifest and lock file where supported.", "Deployment config": "Add the deployment configuration for your target platform.", "Provider validation": "Fix the detected provider configuration syntax and required fields.", "Tests": "Add automated tests before deploying.", "Framework detection": "Add a supported framework/dependency manifest or verify the project type."}
     for name, status in checks:
         if status in fixes and name in advice: fixes[status].append(f"{name}: {advice[name]}")
     if secrets: fixes["FAIL"].append("Secrets scan: remove exposed credentials and rotate them if they were real.")
@@ -261,7 +228,8 @@ def _sarif(payload: dict) -> dict:
     for check in payload["checks"]:
         if check["status"] == "PASS": continue
         level = "error" if check["status"] == "FAIL" else "warning"
-        results.append({"ruleId": check["name"], "level": level, "message": {"text": payload["diagnostics"][check["status"]][0] if payload["diagnostics"][check["status"]] else check["name"]}})
+        message = next(iter(payload["diagnostics"][check["status"]]), check["name"])
+        results.append({"ruleId": check["name"], "level": level, "message": {"text": message}})
     return {"version": "2.1.0", "$schema": "https://json.schemastore.org/sarif-2.1.0.json", "runs": [{"tool": {"driver": {"name": "ShipCheck", "version": "0.2.0"}}, "results": results}]}
 
 
@@ -277,19 +245,11 @@ def _safe_fix(path: Path) -> list[str]:
 
 
 @app.command()
-def scan(
-    path: Path | None = PATH_ARGUMENT,
-    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
-    gate: bool = typer.Option(False, "--gate", help="Exit 1 when the deployment gate fails."),
-    threshold: int | None = typer.Option(None, min=0, max=100, help="Minimum readiness score."),
-    format: str = typer.Option("text", "--format", help="Output format: text, json, or sarif."),
-    fix: bool = typer.Option(False, "--fix", help="Apply only safe, local template fixes before scanning."),
-) -> None:
+def scan(path: Path | None = PATH_ARGUMENT, json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."), gate: bool = typer.Option(False, "--gate", help="Exit 1 when the deployment gate fails."), threshold: int | None = typer.Option(None, min=0, max=100, help="Minimum readiness score."), format: str = typer.Option("text", "--format", help="Output format: text, json, or sarif."), fix: bool = typer.Option(False, "--fix", help="Apply only safe, local template fixes before scanning.")) -> None:
     """Scan PATH and report deployment readiness."""
     path = (path or Path(".")).resolve()
     if format not in {"text", "json", "sarif"}: raise typer.BadParameter("must be text, json, or sarif", param_hint="--format")
-    try:
-        configured_threshold, ignored_checks, ignored_paths = _config(path)
+    try: configured_threshold, ignored_checks, _ = _config(path)
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=EXIT_INVALID_CONFIG) from exc
