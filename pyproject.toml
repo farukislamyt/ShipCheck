@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "shipcheck"
+name = "shipcheck-cli"
 version = "0.1.0"
 description = "Pre-deployment health checks for software projects."
 readme = "README.md"
