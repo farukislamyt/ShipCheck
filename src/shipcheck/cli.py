@@ -22,6 +22,20 @@ SECRET_PATTERNS = {
 IGNORED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
 SCANNABLE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".yaml", ".yml", ".toml", ".ini", ".env", ".txt"}
 
+CHECK_WEIGHTS = {
+    "Project directory": 5,
+    "Git repository": 10,
+    "Git working tree": 10,
+    "Framework detection": 5,
+    "README": 5,
+    ".gitignore": 10,
+    "Environment configuration": 10,
+    "Dependency manifest": 10,
+    "Deployment config": 10,
+    "Tests": 15,
+    "Secrets scan": 10,
+}
+
 
 def _git_clean(path: Path) -> str:
     try:
@@ -124,34 +138,48 @@ def check_project(path: Path) -> list[tuple[str, str]]:
     ]
 
 
+def calculate_score(checks: list[tuple[str, str]]) -> int:
+    total = sum(CHECK_WEIGHTS.get(name, 0) for name, _ in checks)
+    earned = sum(CHECK_WEIGHTS.get(name, 0) for name, status in checks if status == "PASS")
+    return round((earned / total) * 100) if total else 0
+
+
+def is_deployable(checks: list[tuple[str, str]]) -> bool:
+    return not any(status == "FAIL" for _, status in checks)
+
+
 @app.command()
 def scan(
     path: Path = typer.Argument(Path("."), exists=True, file_okay=False, dir_okay=True),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+    gate: bool = typer.Option(False, "--gate", help="Exit with code 1 when a blocking check fails."),
 ) -> None:
     """Scan PATH and report deployment readiness checks."""
     path = path.resolve()
     checks = check_project(path)
     secrets = _secret_findings(path)
-    passed = sum(status == "PASS" for _, status in checks)
-    score = round((passed / len(checks)) * 100)
-    payload = {"project": path.name, "framework": _framework(path), "score": score, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
+    score = calculate_score(checks)
+    deployable = is_deployable(checks)
+    payload = {"project": path.name, "framework": _framework(path), "score": score, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
-        raise typer.Exit()
+    else:
+        console.print(Panel.fit("[bold]ShipCheck[/bold]\nPre-deployment health check"))
+        console.print(f"\n[bold]Project:[/bold] {path.name}")
+        console.print(f"[bold]Framework:[/bold] {_framework(path)}\n")
+        for name, status in checks:
+            icon = {"PASS": "[green]✓[/green]", "WARN": "[yellow]⚠[/yellow]", "FAIL": "[red]✗[/red]"}[status]
+            console.print(f"  {icon} {name}")
+        if secrets:
+            console.print("\n[bold red]Potential secrets:[/bold red]")
+            for finding in secrets[:10]:
+                console.print(f"  [red]•[/red] {finding}")
+        verdict = "READY TO DEPLOY" if deployable else "BLOCKED"
+        console.print(f"\n[bold]Deployment Readiness:[/bold] {score}% — {verdict}")
 
-    console.print(Panel.fit("[bold]ShipCheck[/bold]\nPre-deployment health check"))
-    console.print(f"\n[bold]Project:[/bold] {path.name}")
-    console.print(f"[bold]Framework:[/bold] {_framework(path)}\n")
-    for name, status in checks:
-        icon = {"PASS": "[green]✓[/green]", "WARN": "[yellow]⚠[/yellow]", "FAIL": "[red]✗[/red]"}[status]
-        console.print(f"  {icon} {name}")
-    if secrets:
-        console.print("\n[bold red]Potential secrets:[/bold red]")
-        for finding in secrets[:10]:
-            console.print(f"  [red]•[/red] {finding}")
-    console.print(f"\n[bold]Deployment Readiness:[/bold] {score}%")
+    if gate and not deployable:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
