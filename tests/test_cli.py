@@ -11,9 +11,7 @@ def test_project_checks(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / "README.md").write_text("# Demo", encoding="utf-8")
     (tmp_path / ".gitignore").write_text("__pycache__/", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "demo"\ndependencies = ["typer"]\n', encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\ndependencies = ["typer"]\n', encoding="utf-8")
     (tmp_path / "tests").mkdir()
 
     results = dict(check_project(tmp_path))
@@ -99,20 +97,30 @@ def test_dockerfile_validation(tmp_path: Path) -> None:
     assert _provider_validation(tmp_path, "Docker") == "FAIL"
 
 
+def test_compose_yaml_validation(tmp_path: Path) -> None:
+    (tmp_path / "compose.yml").write_text("services:\n  app:\n    image: python:3.11\n", encoding="utf-8")
+    assert _provider_validation(tmp_path, "Docker") == "PASS"
+    (tmp_path / "compose.yml").write_text("services:\n  app: [\n", encoding="utf-8")
+    assert _provider_validation(tmp_path, "Docker") == "FAIL"
+
+
 def test_github_actions_validation(tmp_path: Path) -> None:
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
     workflow = workflows / "deploy.yml"
     workflow.write_text("name: Deploy\non: push\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
     assert _provider_validation(tmp_path, "GitHub Actions") == "PASS"
+    workflow.write_text("name: Deploy\non: [push\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
+    assert _provider_validation(tmp_path, "GitHub Actions") == "FAIL"
     workflow.write_text("name: Deploy\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n", encoding="utf-8")
     assert _provider_validation(tmp_path, "GitHub Actions") == "FAIL"
 
 
-def test_provider_validation_is_reported(tmp_path: Path) -> None:
+def test_provider_validation_is_reported_and_weighted(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("CMD [\"python\", \"app.py\"]", encoding="utf-8")
     results = dict(check_project(tmp_path))
     assert results["Provider validation"] == "FAIL"
+    assert calculate_score([("Provider validation", "PASS")]) == 100
 
 
 def test_gate_exits_nonzero_when_blocked(tmp_path: Path) -> None:
