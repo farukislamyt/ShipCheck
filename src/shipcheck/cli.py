@@ -104,8 +104,7 @@ def _env_status(path: Path) -> str:
 
 
 def _deployment_files(path: Path) -> str:
-    names = ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "vercel.json", "Procfile")
-    return "PASS" if any((path / name).exists() for name in names) else "WARN"
+    return "PASS" if _deployment_provider(path) != "Unknown" else "WARN"
 
 
 def _deployment_provider(path: Path) -> str:
@@ -119,6 +118,73 @@ def _deployment_provider(path: Path) -> str:
     if workflows.is_dir() and any(p.suffix in {".yml", ".yaml"} for p in workflows.iterdir() if p.is_file()):
         return "GitHub Actions"
     return "Unknown"
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+
+
+def _validate_vercel(path: Path) -> str:
+    config = path / "vercel.json"
+    if not config.exists():
+        return "WARN"
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "FAIL"
+    return "PASS" if isinstance(data, dict) else "FAIL"
+
+
+def _validate_docker(path: Path) -> str:
+    dockerfile = path / "Dockerfile"
+    if dockerfile.exists():
+        text = _read_text(dockerfile)
+        if text is None:
+            return "WARN"
+        return "PASS" if re.search(r"(?m)^\s*FROM\s+\S+", text) else "FAIL"
+    compose = next((path / name for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml") if (path / name).exists()), None)
+    if compose is None:
+        return "WARN"
+    text = _read_text(compose)
+    if text is None:
+        return "WARN"
+    return "PASS" if re.search(r"(?m)^\s*services\s*:", text) else "FAIL"
+
+
+def _validate_github_actions(path: Path) -> str:
+    workflows = path / ".github" / "workflows"
+    files = [p for p in workflows.iterdir() if p.is_file() and p.suffix in {".yml", ".yaml"}] if workflows.is_dir() else []
+    if not files:
+        return "WARN"
+    for workflow in files:
+        text = _read_text(workflow)
+        if text is None:
+            return "WARN"
+        # Lightweight validation without adding a YAML runtime dependency.
+        if not re.search(r"(?m)^\s*(?:name|\"name\")\s*:", text):
+            return "FAIL"
+        if not re.search(r"(?m)^\s*(?:on|\"on\")\s*:", text):
+            return "FAIL"
+        if not re.search(r"(?m)^\s*(?:jobs|\"jobs\")\s*:", text):
+            return "FAIL"
+    return "PASS"
+
+
+def _provider_validation(path: Path, provider: str) -> str:
+    if provider == "Vercel":
+        return _validate_vercel(path)
+    if provider == "Docker":
+        return _validate_docker(path)
+    if provider == "GitHub Actions":
+        return _validate_github_actions(path)
+    if provider == "Procfile-compatible":
+        procfile = path / "Procfile"
+        text = _read_text(procfile)
+        return "PASS" if text and any(":" in line for line in text.splitlines() if line.strip()) else "FAIL"
+    return "WARN"
 
 
 def _secret_findings(path: Path) -> list[str]:
@@ -137,6 +203,7 @@ def _secret_findings(path: Path) -> list[str]:
 
 
 def check_project(path: Path) -> list[tuple[str, str]]:
+    provider = _deployment_provider(path)
     return [
         ("Project directory", "PASS" if path.is_dir() else "FAIL"),
         ("Git repository", "PASS" if (path / ".git").exists() else "WARN"),
@@ -147,6 +214,7 @@ def check_project(path: Path) -> list[tuple[str, str]]:
         ("Environment configuration", _env_status(path)),
         ("Dependency manifest", _has_dependency_manifest(path)),
         ("Deployment config", _deployment_files(path)),
+        ("Provider validation", _provider_validation(path, provider)),
         ("Tests", _has_tests(path)),
         ("Secrets scan", "FAIL" if _secret_findings(path) else "PASS"),
     ]
