@@ -1,0 +1,3 @@
+# Optional ShipCheck project policy.
+# The CLI flag --threshold overrides this value.
+threshold = 80
