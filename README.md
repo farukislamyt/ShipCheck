@@ -1,12 +1,12 @@
 # ShipCheck
 
-> Pre-deployment health checks for modern software projects.
+> Know if your project is ready to deploy.
 
-ShipCheck is a developer-first CLI that scans a project before deployment and highlights configuration problems, missing files, exposed secrets, dependency issues, and other deployment risks.
+ShipCheck is a developer-first CLI that scans a project before deployment and highlights configuration problems, missing files, exposed secrets, dependency issues, and deployment risks.
 
 ## Status
 
-🚀 v0.1.0 — first public release.
+🚀 **v0.2.0** — CI/CD integration, SARIF, diagnostics, provider expansion, and safe fixes.
 
 ## What it checks
 
@@ -16,7 +16,7 @@ ShipCheck is a developer-first CLI that scans a project before deployment and hi
 - Secret detection
 - Dependency manifests
 - Deployment configuration
-- Provider-specific deployment configuration
+- Provider-specific configuration for Vercel, Docker, GitHub Actions, Render, Railway, Fly.io, Netlify, AWS, and Procfile-compatible targets
 - Tests and CI/CD signals
 - Project documentation
 
@@ -36,59 +36,103 @@ cd ShipCheck
 python -m pip install -e ".[dev]"
 ```
 
-## Usage
-
-Run a readiness report:
+## CLI usage
 
 ```bash
 shipcheck .
-```
-
-Machine-readable JSON output:
-
-```bash
-shipcheck . --json
-```
-
-Use the deployment gate in CI/CD. It exits with status `1` when a check fails or the readiness score is below the configured threshold:
-
-```bash
 shipcheck . --gate
-```
-
-Override the default readiness threshold of 80:
-
-```bash
 shipcheck . --gate --threshold 90
 ```
 
+Machine-readable output:
+
+```bash
+shipcheck . --format json
+shipcheck . --format sarif > shipcheck-results.sarif
+```
+
+`--json` remains supported as a compatibility alias for JSON output.
+
+### Diagnostics
+
+Non-passing checks include actionable recommendations in terminal and JSON output. Secret findings identify only the file and credential type; secret values are never printed.
+
+### Safe fixes
+
+Use `--fix` for narrowly scoped local fixes that do not overwrite application code:
+
+```bash
+shipcheck . --fix
+```
+
+Currently this can create a conservative `.gitignore` and copy `.env.template` to `.env.example` when the latter is missing. Always review generated files before committing them.
+
 ## Configuration
 
-Create `.shipcheck.toml` in the project root to persist the readiness threshold:
+Create `.shipcheck.toml`:
 
 ```toml
 [shipcheck]
 threshold = 80
+
+[shipcheck.ignore]
+checks = ["Tests"]
+paths = ["examples/", "fixtures/"]
 ```
 
-The CLI `--threshold` option takes precedence over the configuration file.
+The CLI `--threshold` option takes precedence over the configuration file. Invalid configuration returns exit code `2`.
+
+## Exit codes
+
+| Code | Meaning |
+|---:|---|
+| 0 | Scan completed and the deployment gate passed or was not requested |
+| 1 | `--gate` blocked deployment |
+| 2 | Invalid `.shipcheck.toml` configuration |
+| 3 | Reserved for usage-level failures |
+
+## GitHub Action
+
+ShipCheck can run as a native composite action:
+
+```yaml
+name: ShipCheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  shipcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: farukislamyt/ShipCheck@v0.2.0
+        with:
+          threshold: "80"
+          gate: "true"
+          format: sarif
+```
+
+The action installs the released `shipcheck-cli` package and uploads SARIF results to GitHub Code Scanning.
 
 ## Release process
 
-Releases are tag-driven. The GitHub Actions release workflow validates that the tag version matches `pyproject.toml`, builds the package, runs `twine check`, creates a GitHub Release, and publishes distributions to PyPI using trusted publishing.
-
-For example:
+Releases are tag-driven. The GitHub Actions release workflow validates the tag against `pyproject.toml`, builds the package, validates distributions, creates the GitHub Release, and publishes to PyPI using trusted publishing.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Development
-
-Install development dependencies and run the checks locally:
 
 ```bash
 python -m pip install -e ".[dev]"
