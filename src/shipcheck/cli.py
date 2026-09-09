@@ -35,6 +35,7 @@ CHECK_WEIGHTS = {
     "Tests": 15,
     "Secrets scan": 10,
 }
+DEFAULT_THRESHOLD = 80
 
 
 def _git_clean(path: Path) -> str:
@@ -144,23 +145,43 @@ def calculate_score(checks: list[tuple[str, str]]) -> int:
     return round((earned / total) * 100) if total else 0
 
 
-def is_deployable(checks: list[tuple[str, str]]) -> bool:
-    return not any(status == "FAIL" for _, status in checks)
+def is_deployable(checks: list[tuple[str, str]], score: int | None = None, threshold: int = DEFAULT_THRESHOLD) -> bool:
+    if any(status == "FAIL" for _, status in checks):
+        return False
+    return (calculate_score(checks) if score is None else score) >= threshold
+
+
+def _configured_threshold(path: Path) -> int:
+    config = path / ".shipcheck.toml"
+    if not config.exists():
+        return DEFAULT_THRESHOLD
+    try:
+        for line in config.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.strip().startswith("threshold") and "=" in line:
+                value = int(line.split("=", 1)[1].strip())
+                if 0 <= value <= 100:
+                    return value
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_THRESHOLD
 
 
 @app.command()
 def scan(
     path: Path = typer.Argument(Path("."), exists=True, file_okay=False, dir_okay=True),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
-    gate: bool = typer.Option(False, "--gate", help="Exit with code 1 when a blocking check fails."),
+    gate: bool = typer.Option(False, "--gate", help="Exit with code 1 when the deployment gate fails."),
+    threshold: int | None = typer.Option(None, min=0, max=100, help="Minimum readiness score required by --gate."),
 ) -> None:
     """Scan PATH and report deployment readiness checks."""
     path = path.resolve()
     checks = check_project(path)
     secrets = _secret_findings(path)
     score = calculate_score(checks)
-    deployable = is_deployable(checks)
-    payload = {"project": path.name, "framework": _framework(path), "score": score, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
+    configured_threshold = _configured_threshold(path)
+    effective_threshold = configured_threshold if threshold is None else threshold
+    deployable = is_deployable(checks, score, effective_threshold)
+    payload = {"project": path.name, "framework": _framework(path), "score": score, "threshold": effective_threshold, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
@@ -176,7 +197,7 @@ def scan(
             for finding in secrets[:10]:
                 console.print(f"  [red]•[/red] {finding}")
         verdict = "READY TO DEPLOY" if deployable else "BLOCKED"
-        console.print(f"\n[bold]Deployment Readiness:[/bold] {score}% — {verdict}")
+        console.print(f"\n[bold]Deployment Readiness:[/bold] {score}% / {effective_threshold}% — {verdict}")
 
     if gate and not deployable:
         raise typer.Exit(code=1)
