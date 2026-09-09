@@ -25,7 +25,7 @@ ShipCheck is a developer-first CLI that scans a project before deployment and hi
 ### From PyPI
 
 ```bash
-python -m pip install shipcheck
+python -m pip install shipcheck-cli
 ```
 
 ### From source
