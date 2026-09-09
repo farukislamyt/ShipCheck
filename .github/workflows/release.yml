@@ -49,6 +49,12 @@ jobs:
       - name: Validate distributions
         run: twine check dist/*
 
+      - name: Replace existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release delete "$TAG_NAME" --yes || true
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
