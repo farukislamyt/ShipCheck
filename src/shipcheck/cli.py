@@ -108,6 +108,19 @@ def _deployment_files(path: Path) -> str:
     return "PASS" if any((path / name).exists() for name in names) else "WARN"
 
 
+def _deployment_provider(path: Path) -> str:
+    if (path / "vercel.json").exists() or (path / ".vercel").is_dir():
+        return "Vercel"
+    if any((path / name).exists() for name in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")):
+        return "Docker"
+    if (path / "Procfile").exists():
+        return "Procfile-compatible"
+    workflows = path / ".github" / "workflows"
+    if workflows.is_dir() and any(p.suffix in {".yml", ".yaml"} for p in workflows.iterdir() if p.is_file()):
+        return "GitHub Actions"
+    return "Unknown"
+
+
 def _secret_findings(path: Path) -> list[str]:
     findings: list[str] = []
     for file in path.rglob("*"):
@@ -180,15 +193,17 @@ def scan(
     score = calculate_score(checks)
     configured_threshold = _configured_threshold(path)
     effective_threshold = configured_threshold if threshold is None else threshold
+    provider = _deployment_provider(path)
     deployable = is_deployable(checks, score, effective_threshold)
-    payload = {"project": path.name, "framework": _framework(path), "score": score, "threshold": effective_threshold, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
+    payload = {"project": path.name, "framework": _framework(path), "deployment_provider": provider, "score": score, "threshold": effective_threshold, "deployable": deployable, "checks": [{"name": n, "status": s} for n, s in checks], "secret_findings": secrets}
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2))
     else:
         console.print(Panel.fit("[bold]ShipCheck[/bold]\nPre-deployment health check"))
         console.print(f"\n[bold]Project:[/bold] {path.name}")
-        console.print(f"[bold]Framework:[/bold] {_framework(path)}\n")
+        console.print(f"[bold]Framework:[/bold] {_framework(path)}")
+        console.print(f"[bold]Deployment target:[/bold] {provider}\n")
         for name, status in checks:
             icon = {"PASS": "[green]✓[/green]", "WARN": "[yellow]⚠[/yellow]", "FAIL": "[red]✗[/red]"}[status]
             console.print(f"  {icon} {name}")
